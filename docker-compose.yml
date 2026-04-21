@@ -1,0 +1,50 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: uns-indexer-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-uns_indexer}
+    ports:
+      - "5432:5432"
+    volumes:
+      - uns_indexer_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-uns_indexer}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  indexer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: uns-record-indexer
+    restart: unless-stopped
+    environment:
+      PORT: ${PORT:-3000}
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-uns_indexer}
+      INFURA_HTTP_RPC_URL: ${INFURA_HTTP_RPC_URL}
+      INFURA_WS_RPC_URL: ${INFURA_WS_RPC_URL}
+      UNS_CONTRACT_ADDRESS: ${UNS_CONTRACT_ADDRESS}
+      START_BLOCK: ${START_BLOCK:-0}
+      BLOCK_CONFIRMATIONS: ${BLOCK_CONFIRMATIONS:-12}
+      WATCHED_UNS_KEY: ${WATCHED_UNS_KEY:-token.ANYONE.ANYONE.ANYONE.address}
+      REQUIRED_VALUE_SUFFIX: ${REQUIRED_VALUE_SUFFIX:-.anyone}
+      HEALING_INTERVAL_MS: ${HEALING_INTERVAL_MS:-300000}
+      HEALING_BLOCK_CHUNK_SIZE: ${HEALING_BLOCK_CHUNK_SIZE:-2000}
+      HEALING_CHUNK_DELAY_MS: ${HEALING_CHUNK_DELAY_MS:-250}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+
+volumes:
+  uns_indexer_pgdata:
