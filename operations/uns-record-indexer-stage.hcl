@@ -49,6 +49,57 @@ job "uns-record-indexer-stage" {
       }
     }
 
+    task "uns-record-indexer-migrations-stage-task" {
+      driver = "docker"
+
+      lifecycle {
+        hook    = "prestart"
+        sidecar = false
+      }
+
+      config {
+        image      = "ghcr.io/anyone-protocol/uns-record-indexer:${VERSION}"
+        force_pull = true
+        command    = "node"
+        args       = ["dist/migrate.js"]
+      }
+
+      env {
+        NODE_ENV = "production"
+        DB_NAME  = "uns_indexer"
+      }
+
+      template {
+        data = <<-EOH
+        {{- range service "uns-record-indexer-postgres-stage" }}
+        DB_HOST="{{ .Address }}"
+        DB_PORT="{{ .Port }}"
+        {{- end }}
+        EOH
+        destination = "local/db.env"
+        env         = true
+      }
+
+      template {
+        data = <<-EOH
+        {{ with secret "kv/stage-services/uns-record-indexer-stage" }}
+        DB_USER="{{ .Data.data.DB_USER }}"
+        DB_PASSWORD="{{ .Data.data.DB_PASS }}"
+        {{ end }}
+        EOH
+        destination = "secrets/keys.env"
+        env         = true
+      }
+
+      consul {}
+      vault { role = "any1-nomad-workloads-controller" }
+
+      resources {
+        cpu    = 128
+        memory = 256
+      }
+    }
+
     task "uns-record-indexer-stage-task" {
       driver = "docker"
 
@@ -61,10 +112,9 @@ job "uns-record-indexer-stage" {
         VERSION                  = "[[ .commit_sha ]]"
         NODE_ENV                 = "production"
         PORT                     = "3000"
-        DB_USER                  = "postgres"
         DB_NAME                  = "uns_indexer"
         UNS_CONTRACT_ADDRESS     = "0xF6c1b83977DE3dEffC476f5048A0a84d3375d498"
-        START_BLOCK              = "44737800"
+        START_BLOCK              = "32615764"
         BLOCK_CONFIRMATIONS      = "12"
         WATCHED_UNS_KEY          = "token.ANYONE.ANYONE.ANYONE.address"
         REQUIRED_VALUE_SUFFIX    = ".anyone"
@@ -87,9 +137,10 @@ job "uns-record-indexer-stage" {
       template {
         data = <<-EOH
         {{ with secret "kv/stage-services/uns-record-indexer-stage" }}
-        INFURA_HTTP_RPC_URL="https://base-mainnet.infura.io/v3/{{ .Data.data.INFURA_API_KEY }}"
-        INFURA_WS_RPC_URL="wss://base-mainnet.infura.io/ws/v3/{{ .Data.data.INFURA_API_KEY }}"
-        DB_PASSWORD="{{ .Data.data.DB_PASSWORD }}"
+        INFURA_HTTP_RPC_URL="https://base-mainnet.infura.io/v3/{{ .Data.data.INFURA_API_KEY_2 }}"
+        INFURA_WS_RPC_URL="wss://base-mainnet.infura.io/ws/v3/{{ .Data.data.INFURA_API_KEY_2 }}"
+        DB_USER="{{ .Data.data.DB_USER }}"
+        DB_PASSWORD="{{ .Data.data.DB_PASS }}"
         {{ end }}
         EOH
         destination = "secrets/keys.env"
