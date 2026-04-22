@@ -90,6 +90,8 @@ job "uns-record-indexer-stage" {
         {{ with secret "kv/stage-services/uns-record-indexer-stage" }}
         DB_USER="{{ .Data.data.DB_USER }}"
         DB_PASSWORD="{{ .Data.data.DB_PASS }}"
+        DB_READ_USER="{{ .Data.data.DB_READ_USER }}"
+        DB_READ_PASSWORD="{{ .Data.data.DB_READ_PASS }}"
         {{ end }}
         EOH
         destination = "secrets/keys.env"
@@ -134,7 +136,6 @@ job "uns-record-indexer-stage" {
         RPC_FAILOVER_COOLDOWN_MS     = "600000"
         RPC_FAILOVER_HEAL_BACK_ENABLED = "false"
         RPC_FAILOVER_ERROR_THRESHOLD = "3"
-
       }
 
       template {
@@ -157,6 +158,8 @@ job "uns-record-indexer-stage" {
         ALCHEMY_WS_RPC_URL="wss://base-mainnet.g.alchemy.com/v2/{{ .Data.data.ALCHEMY_API_KEY_0 }}"
         DB_USER="{{ .Data.data.DB_USER }}"
         DB_PASSWORD="{{ .Data.data.DB_PASS }}"
+        DB_READ_USER="{{ .Data.data.DB_READ_USER }}"
+        DB_READ_PASSWORD="{{ .Data.data.DB_READ_PASS }}"
         {{ end }}
         EOH
         destination = "secrets/keys.env"

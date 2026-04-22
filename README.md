@@ -113,6 +113,8 @@ All configuration is via environment variables. Copy `.env.example` and fill in 
 | `DB_USER` | no | `postgres` | PostgreSQL user |
 | `DB_PASSWORD` | no | `postgres` | PostgreSQL password |
 | `DB_NAME` | no | `uns_indexer` | PostgreSQL database |
+| `DB_READ_USER` | no | — | Read-only PostgreSQL role provisioned by `migrate.js`; leave empty to skip |
+| `DB_READ_PASSWORD` | no | — | Password for `DB_READ_USER`; re-applied on every migrate run (supports Vault rotation) |
 | `HEALING_INTERVAL_MS` | no | `300000` | Delay between healing cycles (ms) |
 | `HEALING_BLOCK_CHUNK_SIZE` | no | `2000` | Blocks per `eth_getLogs` request |
 | `HEALING_CHUNK_DELAY_MS` | no | `250` | Delay between chunk requests (ms) |
