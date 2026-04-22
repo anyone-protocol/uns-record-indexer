@@ -73,7 +73,6 @@ job "uns-record-indexer-live" {
         HEALING_CHUNK_DELAY_MS   = "1000"
         RPC_FAILOVER_COOLDOWN_MS     = "600000"
         RPC_FAILOVER_ERROR_THRESHOLD = "3"
-        RPC_WS_STALL_MS              = "120000"
       }
 
       template {

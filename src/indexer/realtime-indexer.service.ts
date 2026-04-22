@@ -15,23 +15,15 @@ export class RealtimeIndexerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RealtimeIndexerService.name);
   private wsProvider: WebSocketProvider | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
-  private stallTimer: NodeJS.Timeout | null = null;
   private backoffMs = 1000;
   private shuttingDown = false;
-  private lastEventAt = 0;
-  private readonly stallMs: number;
-  private readonly stallCheckIntervalMs = 30_000;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly decoder: UnsEventDecoderService,
     private readonly eventProcessor: EventProcessorService,
     private readonly rpcManager: RpcEndpointManagerService,
-  ) {
-    this.stallMs = Number(
-      this.configService.get<string>('RPC_WS_STALL_MS', '120000'),
-    );
-  }
+  ) {}
 
   async onModuleInit(): Promise<void> {
     await this.connect();
@@ -45,10 +37,7 @@ export class RealtimeIndexerService implements OnModuleInit, OnModuleDestroy {
       this.reconnectTimer = null;
     }
 
-    this.clearStallTimer();
-
     if (this.wsProvider) {
-      await this.wsProvider.removeAllListeners();
       await this.wsProvider.destroy();
       this.wsProvider = null;
     }
@@ -97,39 +86,9 @@ export class RealtimeIndexerService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.backoffMs = 1000;
-    this.lastEventAt = Date.now();
-    this.startStallTimer();
     this.logger.log(
       `Realtime websocket subscription started on ${endpoint.name}`,
     );
-  }
-
-  private startStallTimer(): void {
-    this.clearStallTimer();
-    if (this.stallMs <= 0) {
-      return;
-    }
-    this.stallTimer = setInterval(() => {
-      if (this.shuttingDown || !this.wsProvider) {
-        return;
-      }
-      const idleMs = Date.now() - this.lastEventAt;
-      if (idleMs > this.stallMs) {
-        this.logger.warn(
-          `Realtime websocket appears stalled (${idleMs}ms since last event); rotating and reconnecting`,
-        );
-        this.rpcManager.reportError('ws', 'ws_stall');
-        this.clearStallTimer();
-        this.scheduleReconnect();
-      }
-    }, this.stallCheckIntervalMs);
-  }
-
-  private clearStallTimer(): void {
-    if (this.stallTimer) {
-      clearInterval(this.stallTimer);
-      this.stallTimer = null;
-    }
   }
 
   private scheduleReconnect(): void {
@@ -151,10 +110,7 @@ export class RealtimeIndexerService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async reconnect(): Promise<void> {
-    this.clearStallTimer();
-
     if (this.wsProvider) {
-      await this.wsProvider.removeAllListeners();
       try {
         await this.wsProvider.destroy();
       } catch (error) {
@@ -169,7 +125,6 @@ export class RealtimeIndexerService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async handleLog(log: Log): Promise<void> {
-    this.lastEventAt = Date.now();
     this.rpcManager.reportSuccess('ws');
     try {
       const decoded = this.decoder.decode(log);

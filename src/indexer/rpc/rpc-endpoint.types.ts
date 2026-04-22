@@ -12,11 +12,9 @@ export type RpcFailureReason =
   | 'server_error'
   | 'timeout'
   | 'ws_error'
-  | 'ws_stall'
   | 'threshold';
 
 export const HARD_ROTATE_REASONS: ReadonlySet<RpcFailureReason> = new Set([
   'rate_limit',
   'ws_error',
-  'ws_stall',
 ]);

@@ -123,7 +123,7 @@ job "uns-record-indexer-stage" {
         RPC_FAILOVER_COOLDOWN_MS     = "600000"
         RPC_FAILOVER_HEAL_BACK_ENABLED = "false"
         RPC_FAILOVER_ERROR_THRESHOLD = "3"
-        RPC_WS_STALL_MS              = "120000"
+
       }
 
       template {
