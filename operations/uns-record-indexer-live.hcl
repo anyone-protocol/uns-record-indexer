@@ -71,6 +71,9 @@ job "uns-record-indexer-live" {
         HEALING_INTERVAL_MS      = "300000"
         HEALING_BLOCK_CHUNK_SIZE = "100000"
         HEALING_CHUNK_DELAY_MS   = "1000"
+        RPC_FAILOVER_COOLDOWN_MS     = "600000"
+        RPC_FAILOVER_ERROR_THRESHOLD = "3"
+        RPC_WS_STALL_MS              = "120000"
       }
 
       template {
@@ -89,6 +92,8 @@ job "uns-record-indexer-live" {
         {{ with secret "kv/live-services/uns-record-indexer-live" }}
         INFURA_HTTP_RPC_URL="https://base-mainnet.infura.io/v3/{{ .Data.data.INFURA_API_KEY }}"
         INFURA_WS_RPC_URL="wss://base-mainnet.infura.io/ws/v3/{{ .Data.data.INFURA_API_KEY }}"
+        ALCHEMY_HTTP_RPC_URL="https://base-mainnet.g.alchemy.com/v2/{{ .Data.data.ALCHEMY_API_KEY }}"
+        ALCHEMY_WS_RPC_URL="wss://base-mainnet.g.alchemy.com/v2/{{ .Data.data.ALCHEMY_API_KEY }}"
         DB_PASSWORD="{{ .Data.data.DB_PASSWORD }}"
         {{ end }}
         EOH

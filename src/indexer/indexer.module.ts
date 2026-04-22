@@ -7,6 +7,7 @@ import { EventProcessorService } from './event-processor.service';
 import { HealingService } from './healing.service';
 import { HiddenServiceValidatorService } from './hidden-service-validator.service';
 import { RealtimeIndexerService } from './realtime-indexer.service';
+import { RpcEndpointManagerService } from './rpc/rpc-endpoint-manager.service';
 import { UnsEventDecoderService } from './uns-event-decoder.service';
 
 @Module({
@@ -21,6 +22,7 @@ import { UnsEventDecoderService } from './uns-event-decoder.service';
     UnsEventDecoderService,
     HiddenServiceValidatorService,
     EventProcessorService,
+    RpcEndpointManagerService,
     RealtimeIndexerService,
     HealingService,
   ],

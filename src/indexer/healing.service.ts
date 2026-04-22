@@ -1,13 +1,20 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JsonRpcProvider, Log } from 'ethers';
 import { EventProcessorService } from './event-processor.service';
+import { RpcEndpointManagerService } from './rpc/rpc-endpoint-manager.service';
+import { classifyRpcError } from './rpc/rpc-error-classifier';
 import { UnsEventDecoderService } from './uns-event-decoder.service';
 
 @Injectable()
 export class HealingService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(HealingService.name);
-  private provider: JsonRpcProvider | null = null;
+  private readonly providerCache = new Map<string, JsonRpcProvider>();
   private timer: NodeJS.Timeout | null = null;
   private shuttingDown = false;
   private activeRun: Promise<void> | null = null;
@@ -16,6 +23,7 @@ export class HealingService implements OnModuleInit, OnModuleDestroy {
     private readonly configService: ConfigService,
     private readonly decoder: UnsEventDecoderService,
     private readonly eventProcessor: EventProcessorService,
+    private readonly rpcManager: RpcEndpointManagerService,
   ) {}
 
   onModuleInit(): void {
@@ -31,6 +39,10 @@ export class HealingService implements OnModuleInit, OnModuleDestroy {
     if (this.activeRun) {
       await this.activeRun;
     }
+    for (const provider of this.providerCache.values()) {
+      provider.destroy();
+    }
+    this.providerCache.clear();
   }
 
   private async runLoop(): Promise<void> {
@@ -53,30 +65,56 @@ export class HealingService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async healMissedEvents(): Promise<void> {
-    const httpRpcUrl = this.configService.get<string>('INFURA_HTTP_RPC_URL', '');
-    const unsAddress = this.configService.get<string>('UNS_CONTRACT_ADDRESS', '');
+  private getHttpProvider(): JsonRpcProvider | null {
+    const endpoint = this.rpcManager.getActive('http');
+    if (!endpoint) {
+      return null;
+    }
+    let provider = this.providerCache.get(endpoint.url);
+    if (!provider) {
+      provider = new JsonRpcProvider(endpoint.url);
+      this.providerCache.set(endpoint.url, provider);
+    }
+    return provider;
+  }
 
-    if (!httpRpcUrl || !unsAddress) {
+  private async healMissedEvents(): Promise<void> {
+    const unsAddress = this.configService.get<string>(
+      'UNS_CONTRACT_ADDRESS',
+      '',
+    );
+
+    if (!unsAddress) {
+      this.logger.warn('Healing skipped: UNS_CONTRACT_ADDRESS is not set');
+      return;
+    }
+
+    const provider = this.getHttpProvider();
+    if (!provider) {
       this.logger.warn(
-        `Healing skipped: ${!httpRpcUrl ? 'INFURA_HTTP_RPC_URL' : 'UNS_CONTRACT_ADDRESS'} is not set`,
+        'Healing skipped: no HTTP RPC endpoint configured (INFURA_HTTP_RPC_URL / ALCHEMY_HTTP_RPC_URL)',
       );
       return;
     }
 
-    if (!this.provider) {
-      this.provider = new JsonRpcProvider(httpRpcUrl);
-    }
-
     try {
-      const confirmations = Number(this.configService.get<string>('BLOCK_CONFIRMATIONS', '12'));
-      const startBlock = Number(this.configService.get<string>('START_BLOCK', '0'));
-      const chunkSize = Number(this.configService.get<string>('HEALING_BLOCK_CHUNK_SIZE', '2000'));
-      const chunkDelayMs = Number(this.configService.get<string>('HEALING_CHUNK_DELAY_MS', '250'));
+      const confirmations = Number(
+        this.configService.get<string>('BLOCK_CONFIRMATIONS', '12'),
+      );
+      const startBlock = Number(
+        this.configService.get<string>('START_BLOCK', '0'),
+      );
+      const chunkSize = Number(
+        this.configService.get<string>('HEALING_BLOCK_CHUNK_SIZE', '2000'),
+      );
+      const chunkDelayMs = Number(
+        this.configService.get<string>('HEALING_CHUNK_DELAY_MS', '250'),
+      );
 
-      const latest = await this.provider.getBlockNumber();
+      const latest = await this.callWithFailover((p) => p.getBlockNumber());
       const latestSafeBlock = Math.max(startBlock, latest - confirmations);
-      const lastProcessed = await this.eventProcessor.getLastProcessedBlock(startBlock);
+      const lastProcessed =
+        await this.eventProcessor.getLastProcessedBlock(startBlock);
       const fromBlock = Math.max(startBlock, lastProcessed + 1);
 
       this.logger.log(
@@ -138,6 +176,26 @@ export class HealingService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private async callWithFailover<T>(
+    fn: (provider: JsonRpcProvider) => Promise<T>,
+  ): Promise<T> {
+    const provider = this.getHttpProvider();
+    if (!provider) {
+      throw new Error('No HTTP RPC endpoint available');
+    }
+    try {
+      const result = await fn(provider);
+      this.rpcManager.reportSuccess('http');
+      return result;
+    } catch (error) {
+      const reason = classifyRpcError(error);
+      if (reason) {
+        this.rpcManager.reportError('http', reason);
+      }
+      throw error;
+    }
+  }
+
   private async fetchLogsWithRetry(
     address: string,
     fromBlock: number,
@@ -148,12 +206,14 @@ export class HealingService implements OnModuleInit, OnModuleDestroy {
     const baseDelayMs = 1000;
 
     try {
-      return await this.provider!.getLogs({
-        address,
-        fromBlock,
-        toBlock,
-        topics: [this.decoder.getEventTopics()],
-      });
+      return await this.callWithFailover((p) =>
+        p.getLogs({
+          address,
+          fromBlock,
+          toBlock,
+          topics: [this.decoder.getEventTopics()],
+        }),
+      );
     } catch (error) {
       if (this.isRangeTooLargeError(error) && fromBlock < toBlock) {
         const mid = Math.floor((fromBlock + toBlock) / 2);
@@ -169,9 +229,11 @@ export class HealingService implements OnModuleInit, OnModuleDestroy {
         throw error;
       }
 
-      const delay = this.isRateLimitError(error)
-        ? baseDelayMs * Math.pow(2, attempt)
-        : baseDelayMs;
+      const reason = classifyRpcError(error);
+      const delay =
+        reason === 'rate_limit'
+          ? baseDelayMs * Math.pow(2, attempt)
+          : baseDelayMs;
 
       this.logger.warn(
         `getLogs failed (attempt ${attempt + 1}/${maxRetries}), retrying in ${delay}ms: ${(error as Error).message}`,
@@ -179,16 +241,6 @@ export class HealingService implements OnModuleInit, OnModuleDestroy {
       await this.sleep(delay);
       return this.fetchLogsWithRetry(address, fromBlock, toBlock, attempt + 1);
     }
-  }
-
-  private isRateLimitError(error: unknown): boolean {
-    const msg = ((error as Error)?.message ?? '').toLowerCase();
-    const status = (error as { status?: number })?.status;
-    return (
-      status === 429 ||
-      msg.includes('rate limit') ||
-      msg.includes('too many requests')
-    );
   }
 
   private isRangeTooLargeError(error: unknown): boolean {

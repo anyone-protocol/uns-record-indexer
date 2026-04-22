@@ -59,12 +59,12 @@ job "uns-record-indexer-stage" {
 
       config {
         image      = "ghcr.io/anyone-protocol/uns-record-indexer:${VERSION}"
-        force_pull = true
         command    = "node"
         args       = ["dist/migrate.js"]
       }
 
       env {
+        VERSION  = "[[ .commit_sha ]]"
         NODE_ENV = "production"
         DB_NAME  = "uns_indexer"
       }
@@ -104,8 +104,7 @@ job "uns-record-indexer-stage" {
       driver = "docker"
 
       config {
-        image      = "ghcr.io/anyone-protocol/uns-record-indexer:${VERSION}"
-        force_pull = true
+        image = "ghcr.io/anyone-protocol/uns-record-indexer:${VERSION}"
       }
 
       env {
@@ -118,9 +117,13 @@ job "uns-record-indexer-stage" {
         BLOCK_CONFIRMATIONS      = "12"
         WATCHED_UNS_KEY          = "token.ANYONE.ANYONE.ANYONE.address"
         REQUIRED_VALUE_SUFFIX    = ".anyone"
-        HEALING_INTERVAL_MS      = "300000"
+        HEALING_INTERVAL_MS      = "3600000"
         HEALING_BLOCK_CHUNK_SIZE = "100000"
         HEALING_CHUNK_DELAY_MS   = "1000"
+        RPC_FAILOVER_COOLDOWN_MS     = "600000"
+        RPC_FAILOVER_HEAL_BACK_ENABLED = "false"
+        RPC_FAILOVER_ERROR_THRESHOLD = "3"
+        RPC_WS_STALL_MS              = "120000"
       }
 
       template {
@@ -139,6 +142,8 @@ job "uns-record-indexer-stage" {
         {{ with secret "kv/stage-services/uns-record-indexer-stage" }}
         INFURA_HTTP_RPC_URL="https://base-mainnet.infura.io/v3/{{ .Data.data.INFURA_API_KEY_2 }}"
         INFURA_WS_RPC_URL="wss://base-mainnet.infura.io/ws/v3/{{ .Data.data.INFURA_API_KEY_2 }}"
+        ALCHEMY_HTTP_RPC_URL="https://base-mainnet.g.alchemy.com/v2/{{ .Data.data.ALCHEMY_API_KEY_0 }}"
+        ALCHEMY_WS_RPC_URL="wss://base-mainnet.g.alchemy.com/v2/{{ .Data.data.ALCHEMY_API_KEY_0 }}"
         DB_USER="{{ .Data.data.DB_USER }}"
         DB_PASSWORD="{{ .Data.data.DB_PASS }}"
         {{ end }}
@@ -152,8 +157,8 @@ job "uns-record-indexer-stage" {
       vault { role = "any1-nomad-workloads-controller" }
 
       resources {
-        cpu    = 256
-        memory = 512
+        cpu    = 1024
+        memory = 1024
       }
     }
   }

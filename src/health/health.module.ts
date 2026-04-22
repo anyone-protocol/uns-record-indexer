@@ -6,7 +6,10 @@ import { IndexerCheckpointEntity } from '../indexer/entities/indexer-checkpoint.
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([HiddenServiceRecordEntity, IndexerCheckpointEntity]),
+    TypeOrmModule.forFeature([
+      HiddenServiceRecordEntity,
+      IndexerCheckpointEntity,
+    ]),
   ],
   controllers: [HealthController],
 })

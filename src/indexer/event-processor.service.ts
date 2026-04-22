@@ -148,7 +148,7 @@ export class EventProcessorService {
         );
         return null;
       }
-      const body = await res.json() as { name?: string };
+      const body = (await res.json()) as { name?: string };
       return body.name ?? null;
     } catch (error) {
       this.logger.warn(

@@ -15,20 +15,24 @@ Indexes one UNS record key on Base chain and stores the current value per token 
 ### Startup sequence
 
 1. NestJS bootstraps and connects to PostgreSQL. TypeORM schema-syncs all entities on first run.
-2. `RealtimeIndexerService` opens a WebSocket connection to Infura and subscribes to `Set` and `ResetRecords` logs for the configured contract address.
-3. `HealingService` immediately runs its first backfill cycle, then waits `HEALING_INTERVAL_MS` after each cycle completes before running again.
+2. `RpcEndpointManagerService` reads Infura (primary) and Alchemy (backup) URLs for both WebSocket and HTTP transports.
+3. `RealtimeIndexerService` opens a WebSocket connection to the active provider and subscribes to `Set` and `ResetRecords` logs for the configured contract address.
+4. `HealingService` immediately runs its first backfill cycle, then waits `HEALING_INTERVAL_MS` after each cycle completes before running again.
 
 ### Event flow
 
 ```
-Infura WSS                       Infura HTTP JSON-RPC
-     │                                    │
-     ▼                                    ▼
-RealtimeIndexerService          HealingService (loop)
-     │                                    │
-     └─────────────┬──────────────────────┘
-                   ▼
-          EventProcessorService
+  WSS (Infura → Alchemy)              HTTP JSON-RPC (Infura → Alchemy)
+          │                                     │
+          ▼                                     ▼
+ RealtimeIndexerService               HealingService (loop)
+          │                                     │
+          └────────── RpcEndpointManagerService ──────────┐
+                         (sticky failover,                │
+                          heal-back, logging)             │
+                                    │                     │
+                                    ▼                     ▼
+                           EventProcessorService
           ┌─────────────────────────────────────────────┐
           │ 1. Check processed_logs (transactionHash +  │
           │    logIndex) — skip if already seen         │
@@ -56,9 +60,20 @@ RealtimeIndexerService          HealingService (loop)
 ### Reconnection and fault tolerance
 
 - WebSocket disconnects trigger exponential backoff reconnect (1 s → 30 s cap). Any gaps created during a disconnect are filled by the next healing cycle.
+- A WebSocket stall detector force-reconnects (and rotates providers) if no events arrive for `RPC_WS_STALL_MS` (default 120 s).
 - The healing loop is idempotent: reprocessing already-seen logs is a no-op due to `processed_logs` dedup.
 - `BLOCK_CONFIRMATIONS` (default 12) ensures healing only processes finalized blocks.
 - On shutdown, NestJS waits for any in-flight healing cycle to complete before closing DB connections.
+
+### RPC provider failover
+
+The indexer uses Infura as the primary JSON-RPC/WebSocket provider and falls back to Alchemy on errors. Failover is managed independently per transport (ws vs http) by `RpcEndpointManagerService` and is **sticky with heal-back**:
+
+- After rotating to Alchemy, the service stays on Alchemy until `RPC_FAILOVER_COOLDOWN_MS` elapses (default 10 min), then the next call returns to Infura. Set `RPC_FAILOVER_HEAL_BACK_ENABLED=false` to disable heal-back entirely — once rotated, the service sticks with the backup until it too fails a rotation trigger.
+- Rotation is immediate on "hard" signals: HTTP 429 (rate limit), WebSocket `error` events, and WebSocket stalls.
+- Rotation is triggered after `RPC_FAILOVER_ERROR_THRESHOLD` consecutive "soft" errors: HTTP 5xx, timeouts, and connection resets.
+- If only Infura is configured (no Alchemy URL), the service runs in single-endpoint mode and logs a warning at startup.
+- All rotation and heal-back events are logged via the NestJS logger (e.g. `RPC failover: ws infura → alchemy (reason=ws_stall)`, `RPC heal-back: http alchemy → infura (cooldown elapsed)`).
 
 ### Rate limiting and range splitting
 
@@ -73,8 +88,14 @@ All configuration is via environment variables. Copy `.env.example` and fill in 
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `INFURA_WS_RPC_URL` | yes | — | Infura WebSocket endpoint for Base |
-| `INFURA_HTTP_RPC_URL` | yes | — | Infura HTTP endpoint for Base |
+| `INFURA_WS_RPC_URL` | yes | — | Infura WebSocket endpoint for Base (primary) |
+| `INFURA_HTTP_RPC_URL` | yes | — | Infura HTTP endpoint for Base (primary) |
+| `ALCHEMY_WS_RPC_URL` | no | — | Alchemy WebSocket endpoint for Base (backup); failover disabled if empty |
+| `ALCHEMY_HTTP_RPC_URL` | no | — | Alchemy HTTP endpoint for Base (backup); failover disabled if empty |
+| `RPC_FAILOVER_COOLDOWN_MS` | no | `600000` | How long to stay on the backup provider before trying the primary again (ms); ignored when heal-back is disabled |
+| `RPC_FAILOVER_HEAL_BACK_ENABLED` | no | `true` | When `false`, never automatically return to the primary provider after a failover |
+| `RPC_FAILOVER_ERROR_THRESHOLD` | no | `3` | Consecutive soft errors (5xx/timeout) before rotating providers |
+| `RPC_WS_STALL_MS` | no | `120000` | Reconnect and rotate if no WS events received within this window (ms) |
 | `UNS_CONTRACT_ADDRESS` | yes | — | UNS registry contract address |
 | `START_BLOCK` | yes | `0` | Block to start indexing from |
 | `PORT` | no | `3000` | HTTP port |
