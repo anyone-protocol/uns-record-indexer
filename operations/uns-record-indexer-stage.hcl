@@ -1,3 +1,8 @@
+variable "commit_sha" {
+  type        = string
+  description = "The git commit SHA to use for the indexer image tag"
+}
+
 job "uns-record-indexer-stage" {
   datacenters = ["ator-fin"]
   type        = "service"
@@ -64,7 +69,7 @@ job "uns-record-indexer-stage" {
       }
 
       env {
-        VERSION  = "[[ .commit_sha ]]"
+        VERSION  = var.commit_sha
         NODE_ENV = "production"
         DB_NAME  = "uns_indexer"
       }
@@ -108,7 +113,7 @@ job "uns-record-indexer-stage" {
       }
 
       env {
-        VERSION                  = "[[ .commit_sha ]]"
+        VERSION                  = var.commit_sha
         NODE_ENV                 = "production"
         PORT                     = "3000"
         DB_NAME                  = "uns_indexer"
