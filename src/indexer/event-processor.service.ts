@@ -8,6 +8,10 @@ import { IndexerCheckpointEntity } from './entities/indexer-checkpoint.entity';
 import { ProcessedLogEntity } from './entities/processed-log.entity';
 import { DecodedUnsEvent } from './types';
 import { ConfigService } from '@nestjs/config';
+import {
+  MetadataFetchResult,
+  UnstoppableMetadataClient,
+} from './unstoppable-metadata.client';
 
 @Injectable()
 export class EventProcessorService {
@@ -17,6 +21,7 @@ export class EventProcessorService {
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
     private readonly validator: HiddenServiceValidatorService,
+    private readonly metadataClient: UnstoppableMetadataClient,
     @InjectRepository(IndexerCheckpointEntity)
     private readonly checkpointRepo: Repository<IndexerCheckpointEntity>,
   ) {}
@@ -24,14 +29,21 @@ export class EventProcessorService {
   async process(event: DecodedUnsEvent): Promise<void> {
     // Fetch domain name outside the transaction so we don't hold a DB
     // connection open during an HTTP call.
-    let domainName: string | null = null;
+    let metadataResult: MetadataFetchResult | null = null;
     if (event.name === 'Set') {
       const watchedKey = this.configService.get<string>(
         'WATCHED_UNS_KEY',
         'token.ANYONE.ANYONE.ANYONE.address',
       );
       if (event.key === watchedKey && this.validator.isValid(event.value)) {
-        domainName = await this.fetchDomainName(event.tokenId);
+        metadataResult = await this.metadataClient.fetchDomainName(
+          event.tokenId,
+        );
+        if (metadataResult.status === 'failed') {
+          this.logger.warn(
+            `Metadata fetch exhausted retries for tokenId ${event.tokenId} (${metadataResult.reason}); will be retried by backfill`,
+          );
+        }
       }
     }
 
@@ -48,7 +60,7 @@ export class EventProcessorService {
       }
 
       if (event.name === 'Set') {
-        await this.applySetEvent(event, manager, domainName);
+        await this.applySetEvent(event, manager, metadataResult);
       }
 
       if (event.name === 'ResetRecords') {
@@ -76,10 +88,16 @@ export class EventProcessorService {
     return checkpoint?.lastProcessedBlock ?? startBlock;
   }
 
+  async advanceCheckpoint(blockNumber: number): Promise<void> {
+    await this.dataSource.transaction((manager) =>
+      this.bumpCheckpoint(manager, blockNumber),
+    );
+  }
+
   private async applySetEvent(
     event: Extract<DecodedUnsEvent, { name: 'Set' }>,
     manager: DataSource['manager'],
-    domainName: string | null,
+    metadataResult: MetadataFetchResult | null,
   ): Promise<void> {
     const watchedKey = this.configService.get<string>(
       'WATCHED_UNS_KEY',
@@ -101,11 +119,21 @@ export class EventProcessorService {
       where: { tokenId: event.tokenId },
     });
 
+    const resolvedName =
+      metadataResult?.status === 'resolved' ? metadataResult.name : null;
+    const nameFetchFailedAt =
+      metadataResult?.status === 'failed'
+        ? new Date()
+        : metadataResult?.status === 'resolved'
+          ? null
+          : (existing?.nameFetchFailedAt ?? null);
+
     const next = manager.create(HiddenServiceRecordEntity, {
       ...existing,
       tokenId: event.tokenId,
       value: event.value,
-      name: domainName ?? existing?.name ?? null,
+      name: resolvedName ?? existing?.name ?? null,
+      nameFetchFailedAt,
       lastTransactionHash: event.transactionHash,
       lastBlockNumber: event.blockNumber,
       lastLogIndex: event.logIndex,
@@ -129,33 +157,13 @@ export class EventProcessorService {
     const next = manager.create(HiddenServiceRecordEntity, {
       ...existing,
       value: null,
+      nameFetchFailedAt: null,
       lastTransactionHash: event.transactionHash,
       lastBlockNumber: event.blockNumber,
       lastLogIndex: event.logIndex,
     });
 
     await manager.save(HiddenServiceRecordEntity, next);
-  }
-
-  private async fetchDomainName(tokenId: string): Promise<string | null> {
-    try {
-      const res = await fetch(
-        `https://api.unstoppabledomains.com/metadata/${tokenId}`,
-      );
-      if (!res.ok) {
-        this.logger.warn(
-          `Metadata API returned ${res.status} for tokenId ${tokenId}`,
-        );
-        return null;
-      }
-      const body = (await res.json()) as { name?: string };
-      return body.name ?? null;
-    } catch (error) {
-      this.logger.warn(
-        `Failed to fetch domain name for tokenId ${tokenId}: ${(error as Error).message}`,
-      );
-      return null;
-    }
   }
 
   private async bumpCheckpoint(

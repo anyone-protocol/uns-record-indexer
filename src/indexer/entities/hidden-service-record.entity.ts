@@ -31,6 +31,9 @@ export class HiddenServiceRecordEntity {
   @Column({ type: 'int', default: 0 })
   lastLogIndex!: number;
 
+  @Column({ type: 'timestamp', nullable: true })
+  nameFetchFailedAt!: Date | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 

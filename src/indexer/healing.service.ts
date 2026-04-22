@@ -168,6 +168,11 @@ export class HealingService implements OnModuleInit, OnModuleDestroy {
           }
           await this.eventProcessor.process(decoded);
         }
+
+        // Advance the checkpoint to the end of this chunk even when no
+        // matching events were found, so the next cycle doesn't re-scan
+        // the same range.
+        await this.eventProcessor.advanceCheckpoint(rangeEnd);
       }
 
       this.logger.log(`Healing cycle complete: processed ${totalLogs} log(s)`);

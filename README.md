@@ -54,7 +54,7 @@ Indexes one UNS record key on Base chain and stores the current value per token 
 | Table | Purpose |
 |---|---|
 | `hidden_service_records` | Current indexed `.anyone` address per token |
-| `indexer_checkpoints` | Last processed block number |
+| `indexer_checkpoints` | Last scanned block number (advances per healing chunk, even when no matching events are found) |
 | `processed_logs` | Deduplication — every `(transactionHash, logIndex)` seen |
 
 ### Reconnection and fault tolerance
@@ -80,6 +80,14 @@ The healing service queries `eth_getLogs` in chunks (`HEALING_BLOCK_CHUNK_SIZE` 
 
 - **Rate limited (429)**: retries with exponential backoff (1 s → 2 s → 4 s → 8 s, max 4 retries).
 - **Range too large**: the block range is recursively bisected until the provider accepts it.
+
+### Domain name resolution
+
+When a `Set` event is processed, the indexer fetches the token's domain name from the Unstoppable Domains metadata API (`https://api.unstoppabledomains.com/metadata/<tokenId>`) and stores it alongside the record. This lookup is resilient to transient outages:
+
+- **In-flight retries**: each metadata call retries up to `METADATA_FETCH_MAX_ATTEMPTS` times with exponential backoff (`METADATA_FETCH_BASE_DELAY_MS`) for retryable conditions (HTTP 408, 418, 425, 429, 5xx, network errors, timeouts). `Retry-After` headers are honored. Each attempt is bounded by `METADATA_FETCH_TIMEOUT_MS`.
+- **Terminal responses**: HTTP 404 is treated as "no metadata" (record saved with `name = NULL`, no further retries). Other non-retryable 4xx responses are also terminal.
+- **Backfill**: if retries are exhausted, the record is saved with a `nameFetchFailedAt` marker and the event is still committed (so indexing progresses). `MetadataBackfillService` periodically (`METADATA_BACKFILL_INTERVAL_MS`) selects a batch of records with a null `name` and non-null `nameFetchFailedAt` and re-queries the metadata API. On success the `name` is filled in and the marker cleared; on continued failure the marker is bumped so the batch rotates.
 
 ## Configuration
 
@@ -108,6 +116,12 @@ All configuration is via environment variables. Copy `.env.example` and fill in 
 | `HEALING_INTERVAL_MS` | no | `300000` | Delay between healing cycles (ms) |
 | `HEALING_BLOCK_CHUNK_SIZE` | no | `2000` | Blocks per `eth_getLogs` request |
 | `HEALING_CHUNK_DELAY_MS` | no | `250` | Delay between chunk requests (ms) |
+| `METADATA_FETCH_MAX_ATTEMPTS` | no | `4` | Max metadata API attempts per `Set` event |
+| `METADATA_FETCH_BASE_DELAY_MS` | no | `500` | Base delay for metadata retry exponential backoff (ms) |
+| `METADATA_FETCH_TIMEOUT_MS` | no | `5000` | Per-attempt timeout for metadata API calls (ms) |
+| `METADATA_BACKFILL_INTERVAL_MS` | no | `600000` | Delay between metadata backfill cycles (ms) |
+| `METADATA_BACKFILL_BATCH_SIZE` | no | `25` | Records re-queried per backfill cycle |
+| `METADATA_BACKFILL_REQUEST_DELAY_MS` | no | `200` | Delay between backfill API calls (ms) |
 
 ## Run Locally (No Docker)
 
