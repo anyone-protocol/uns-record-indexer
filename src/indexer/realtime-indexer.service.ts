@@ -48,7 +48,7 @@ export class RealtimeIndexerService implements OnModuleInit, OnModuleDestroy {
     this.clearStallTimer();
 
     if (this.wsProvider) {
-      this.wsProvider.removeAllListeners();
+      await this.wsProvider.removeAllListeners();
       await this.wsProvider.destroy();
       this.wsProvider = null;
     }
@@ -82,11 +82,11 @@ export class RealtimeIndexerService implements OnModuleInit, OnModuleDestroy {
       topics: [this.decoder.getEventTopics()],
     };
 
-    this.wsProvider.on(filter, (log: Log) => {
+    await this.wsProvider.on(filter, (log: Log) => {
       void this.handleLog(log);
     });
 
-    this.wsProvider.on('error', (error: unknown) => {
+    await this.wsProvider.on('error', (error: unknown) => {
       this.logger.warn(
         `Realtime websocket error on ${endpoint.name}: ${(error as Error)?.message ?? String(error)}`,
       );
@@ -154,7 +154,7 @@ export class RealtimeIndexerService implements OnModuleInit, OnModuleDestroy {
     this.clearStallTimer();
 
     if (this.wsProvider) {
-      this.wsProvider.removeAllListeners();
+      await this.wsProvider.removeAllListeners();
       try {
         await this.wsProvider.destroy();
       } catch (error) {

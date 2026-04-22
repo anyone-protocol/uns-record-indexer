@@ -21,7 +21,7 @@ describe('AppController (e2e)', () => {
       .get('/health')
       .expect(200)
       .expect((response) => {
-        expect(response.body.ok).toBe(true);
+        expect((response.body as { ok: boolean }).ok).toBe(true);
       });
   });
 });

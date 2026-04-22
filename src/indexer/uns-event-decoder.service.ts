@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Interface, Log } from 'ethers';
+import { Interface, Log, LogDescription } from 'ethers';
 import { UNS_ABI } from './constants';
 import { DecodedUnsEvent } from './types';
 
@@ -15,7 +15,7 @@ export class UnsEventDecoderService {
   }
 
   decode(log: Log): DecodedUnsEvent | null {
-    let parsed;
+    let parsed: LogDescription | null;
     try {
       parsed = this.iface.parseLog({ topics: [...log.topics], data: log.data });
     } catch {
@@ -26,12 +26,18 @@ export class UnsEventDecoderService {
       return null;
     }
 
+    const args = parsed.args as unknown as {
+      tokenId: bigint;
+      key: unknown;
+      value: unknown;
+    };
+
     if (parsed.name === 'Set') {
       return {
         name: 'Set',
-        tokenId: parsed.args.tokenId.toString(),
-        key: String(parsed.args.key),
-        value: String(parsed.args.value),
+        tokenId: args.tokenId.toString(),
+        key: String(args.key),
+        value: String(args.value),
         blockNumber: log.blockNumber,
         transactionHash: log.transactionHash,
         logIndex: log.index,
@@ -43,7 +49,7 @@ export class UnsEventDecoderService {
     if (parsed.name === 'ResetRecords') {
       return {
         name: 'ResetRecords',
-        tokenId: parsed.args.tokenId.toString(),
+        tokenId: args.tokenId.toString(),
         blockNumber: log.blockNumber,
         transactionHash: log.transactionHash,
         logIndex: log.index,
