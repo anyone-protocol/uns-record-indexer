@@ -129,6 +129,9 @@ export class RealtimeIndexerService implements OnModuleInit, OnModuleDestroy {
     try {
       const decoded = this.decoder.decode(log);
       if (!decoded) {
+        this.logger.warn(
+          `Received unrecognized log on realtime websocket at tx ${log.transactionHash} log index ${log.index}`,
+        );
         return;
       }
 

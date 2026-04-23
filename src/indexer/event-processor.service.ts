@@ -69,6 +69,9 @@ export class EventProcessorService {
       });
 
       if (processed) {
+        this.logger.debug(
+          `Skipping already processed log at tx ${event.transactionHash} log index ${event.logIndex}`,
+        );
         return;
       }
 
@@ -118,6 +121,9 @@ export class EventProcessorService {
     );
 
     if (event.key !== watchedKey) {
+      this.logger.warn(
+        `Ignoring Set event for unwatched key ${event.key} at tx ${event.transactionHash} log index ${event.logIndex}`,
+      );
       return;
     }
 
@@ -153,6 +159,10 @@ export class EventProcessorService {
     });
 
     await manager.save(HiddenServiceRecordEntity, next);
+
+    this.logger.log(
+      `Processed Set event for tokenId ${event.tokenId} with value ${event.value} at tx ${event.transactionHash} log index ${event.logIndex}`,
+    );
   }
 
   private async applyResetEvent(
@@ -164,6 +174,9 @@ export class EventProcessorService {
     });
 
     if (!existing) {
+      this.logger.warn(
+        `Received ResetRecords event for tokenId ${event.tokenId} with no existing record at tx ${event.transactionHash} log index ${event.logIndex}`,
+      );
       return;
     }
 
@@ -177,6 +190,10 @@ export class EventProcessorService {
     });
 
     await manager.save(HiddenServiceRecordEntity, next);
+
+    this.logger.log(
+      `Processed ResetRecords event for tokenId ${event.tokenId} at tx ${event.transactionHash} log index ${event.logIndex}`,
+    );
   }
 
   private async bumpCheckpoint(
@@ -196,5 +213,9 @@ export class EventProcessorService {
     });
 
     await manager.save(IndexerCheckpointEntity, next);
+
+    this.logger.log(
+      `Advanced checkpoint to block ${next.lastProcessedBlock}`,
+    );
   }
 }
