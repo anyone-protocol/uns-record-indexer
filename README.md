@@ -7,7 +7,7 @@ Indexes one UNS record key on Base chain and stores the current value per token 
 - Key in scope: `token.ANYONE.ANYONE.ANYONE.address` (configurable via `WATCHED_UNS_KEY`)
 - Value rule: must end with `.anyone` (configurable via `REQUIRED_VALUE_SUFFIX`)
 
-`Set` upserts the indexed value for a token when the key and suffix match.  
+`Set` upserts the indexed value for a token when the key and suffix match. A `Set` event with an empty string value is treated as a clear (same semantics as `ResetRecords`) — users sometimes wipe their record this way instead of calling `ResetRecords`.  
 `ResetRecords` sets the value to `NULL` for that token (if a record exists).
 
 ## Operational Overview

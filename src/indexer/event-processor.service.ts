@@ -127,6 +127,22 @@ export class EventProcessorService {
       return;
     }
 
+    // An empty value means the user cleared their record on-chain; treat it
+    // the same as a ResetRecords event for this token.
+    if (event.value === '') {
+      await this.clearRecord(
+        event.tokenId,
+        event.transactionHash,
+        event.blockNumber,
+        event.logIndex,
+        manager,
+      );
+      this.logger.log(
+        `Cleared hidden service record for tokenId ${event.tokenId} via empty Set at tx ${event.transactionHash} log index ${event.logIndex}`,
+      );
+      return;
+    }
+
     if (!this.validator.isValid(event.value)) {
       this.logger.warn(
         `Ignoring invalid hidden service value for token ${event.tokenId} with value ${event.value} at tx ${event.transactionHash} log index ${event.logIndex}`,
@@ -169,31 +185,52 @@ export class EventProcessorService {
     event: Extract<DecodedUnsEvent, { name: 'ResetRecords' }>,
     manager: DataSource['manager'],
   ): Promise<void> {
-    const existing = await manager.findOne(HiddenServiceRecordEntity, {
-      where: { tokenId: event.tokenId },
-    });
+    const cleared = await this.clearRecord(
+      event.tokenId,
+      event.transactionHash,
+      event.blockNumber,
+      event.logIndex,
+      manager,
+    );
 
-    if (!existing) {
+    if (!cleared) {
       this.logger.warn(
         `Received ResetRecords event for tokenId ${event.tokenId} with no existing record at tx ${event.transactionHash} log index ${event.logIndex}`,
       );
       return;
     }
 
+    this.logger.log(
+      `Processed ResetRecords event for tokenId ${event.tokenId} at tx ${event.transactionHash} log index ${event.logIndex}`,
+    );
+  }
+
+  private async clearRecord(
+    tokenId: string,
+    transactionHash: string,
+    blockNumber: number,
+    logIndex: number,
+    manager: DataSource['manager'],
+  ): Promise<boolean> {
+    const existing = await manager.findOne(HiddenServiceRecordEntity, {
+      where: { tokenId },
+    });
+
+    if (!existing) {
+      return false;
+    }
+
     const next = manager.create(HiddenServiceRecordEntity, {
       ...existing,
       value: null,
       nameFetchFailedAt: null,
-      lastTransactionHash: event.transactionHash,
-      lastBlockNumber: event.blockNumber,
-      lastLogIndex: event.logIndex,
+      lastTransactionHash: transactionHash,
+      lastBlockNumber: blockNumber,
+      lastLogIndex: logIndex,
     });
 
     await manager.save(HiddenServiceRecordEntity, next);
-
-    this.logger.log(
-      `Processed ResetRecords event for tokenId ${event.tokenId} at tx ${event.transactionHash} log index ${event.logIndex}`,
-    );
+    return true;
   }
 
   private async bumpCheckpoint(
@@ -214,8 +251,6 @@ export class EventProcessorService {
 
     await manager.save(IndexerCheckpointEntity, next);
 
-    this.logger.log(
-      `Advanced checkpoint to block ${next.lastProcessedBlock}`,
-    );
+    this.logger.log(`Advanced checkpoint to block ${next.lastProcessedBlock}`);
   }
 }
