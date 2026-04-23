@@ -121,7 +121,7 @@ export class EventProcessorService {
     );
 
     if (event.key !== watchedKey) {
-      this.logger.warn(
+      this.logger.debug(
         `Ignoring Set event for unwatched key ${event.key} at tx ${event.transactionHash} log index ${event.logIndex}`,
       );
       return;
