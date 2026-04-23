@@ -24,6 +24,8 @@ export class EventProcessorService {
     private readonly metadataClient: UnstoppableMetadataClient,
     @InjectRepository(IndexerCheckpointEntity)
     private readonly checkpointRepo: Repository<IndexerCheckpointEntity>,
+    @InjectRepository(HiddenServiceRecordEntity)
+    private readonly recordRepo: Repository<HiddenServiceRecordEntity>,
   ) {}
 
   async process(event: DecodedUnsEvent): Promise<void> {
@@ -36,13 +38,24 @@ export class EventProcessorService {
         'token.ANYONE.ANYONE.ANYONE.address',
       );
       if (event.key === watchedKey && this.validator.isValid(event.value)) {
-        metadataResult = await this.metadataClient.fetchDomainName(
-          event.tokenId,
-        );
-        if (metadataResult.status === 'failed') {
-          this.logger.warn(
-            `Metadata fetch exhausted retries for tokenId ${event.tokenId} (${metadataResult.reason}); will be retried by backfill`,
+        // tokenId -> name mappings are immutable, so once we've resolved a
+        // name for a tokenId we never need to ask the metadata API again.
+        const cached = await this.recordRepo.findOne({
+          where: { tokenId: event.tokenId },
+          select: { name: true },
+        });
+
+        if (cached?.name) {
+          metadataResult = { status: 'resolved', name: cached.name };
+        } else {
+          metadataResult = await this.metadataClient.fetchDomainName(
+            event.tokenId,
           );
+          if (metadataResult.status === 'failed') {
+            this.logger.warn(
+              `Metadata fetch exhausted retries for tokenId ${event.tokenId} (${metadataResult.reason}); will be retried by backfill`,
+            );
+          }
         }
       }
     }

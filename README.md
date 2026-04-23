@@ -85,6 +85,7 @@ The healing service queries `eth_getLogs` in chunks (`HEALING_BLOCK_CHUNK_SIZE` 
 
 When a `Set` event is processed, the indexer fetches the token's domain name from the Unstoppable Domains metadata API (`https://api.unstoppabledomains.com/metadata/<tokenId>`) and stores it alongside the record. This lookup is resilient to transient outages:
 
+- **Cached resolutions**: `tokenId → name` mappings are immutable, so once a name has been resolved for a given `tokenId` the indexer reuses the stored value on subsequent `Set` events and never re-hits the metadata API for that token.
 - **In-flight retries**: each metadata call retries up to `METADATA_FETCH_MAX_ATTEMPTS` times with exponential backoff (`METADATA_FETCH_BASE_DELAY_MS`) for retryable conditions (HTTP 408, 418, 425, 429, 5xx, network errors, timeouts). `Retry-After` headers are honored. Each attempt is bounded by `METADATA_FETCH_TIMEOUT_MS`.
 - **Terminal responses**: HTTP 404 is treated as "no metadata" (record saved with `name = NULL`, no further retries). Other non-retryable 4xx responses are also terminal.
 - **Backfill**: if retries are exhausted, the record is saved with a `nameFetchFailedAt` marker and the event is still committed (so indexing progresses). `MetadataBackfillService` periodically (`METADATA_BACKFILL_INTERVAL_MS`) selects a batch of records with a null `name` and non-null `nameFetchFailedAt` and re-queries the metadata API. On success the `name` is filled in and the marker cleared; on continued failure the marker is bumped so the batch rotates.
