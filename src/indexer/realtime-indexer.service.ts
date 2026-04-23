@@ -66,12 +66,31 @@ export class RealtimeIndexerService implements OnModuleInit, OnModuleDestroy {
 
     this.wsProvider = new WebSocketProvider(endpoint.url);
 
-    const filter = {
+    const watchedKey = this.configService.get<string>(
+      'WATCHED_UNS_KEY',
+      'token.ANYONE.ANYONE.ANYONE.address',
+    );
+    const keyIndexTopic = this.decoder.getKeyIndexTopic(watchedKey);
+
+    // `Set` has 4 topics (sig + tokenId + keyIndex + valueIndex) and
+    // `ResetRecords` has 2 (sig + tokenId), so we can't combine them into
+    // a single filter. Subscribe separately — `Set` is narrowed to the
+    // watched key via the indexed `keyIndex` topic hash, which lets the
+    // RPC provider drop unrelated `Set` events before they reach us.
+    const setFilter = {
       address: unsAddress,
-      topics: [this.decoder.getEventTopics()],
+      topics: [this.decoder.getSetEventTopic(), null, keyIndexTopic],
+    };
+    const resetFilter = {
+      address: unsAddress,
+      topics: [this.decoder.getResetRecordsEventTopic()],
     };
 
-    await this.wsProvider.on(filter, (log: Log) => {
+    await this.wsProvider.on(setFilter, (log: Log) => {
+      void this.handleLog(log);
+    });
+
+    await this.wsProvider.on(resetFilter, (log: Log) => {
       void this.handleLog(log);
     });
 

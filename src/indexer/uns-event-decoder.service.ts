@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Interface, Log, LogDescription } from 'ethers';
+import { Interface, Log, LogDescription, id } from 'ethers';
 import { UNS_ABI } from './constants';
 import { DecodedUnsEvent } from './types';
 
@@ -7,11 +7,22 @@ import { DecodedUnsEvent } from './types';
 export class UnsEventDecoderService {
   private readonly iface = new Interface(UNS_ABI);
 
-  getEventTopics(): string[] {
-    return [
-      this.iface.getEvent('Set')!.topicHash,
-      this.iface.getEvent('ResetRecords')!.topicHash,
-    ];
+  getSetEventTopic(): string {
+    return this.iface.getEvent('Set')!.topicHash;
+  }
+
+  getResetRecordsEventTopic(): string {
+    return this.iface.getEvent('ResetRecords')!.topicHash;
+  }
+
+  /**
+   * Compute the topic hash for the indexed `keyIndex` parameter of a `Set`
+   * event. Solidity hashes indexed string arguments with keccak256, so this
+   * value can be used as the third topic in an eth_getLogs / eth_subscribe
+   * filter to restrict `Set` events to a single record key.
+   */
+  getKeyIndexTopic(key: string): string {
+    return id(key);
   }
 
   decode(log: Log): DecodedUnsEvent | null {

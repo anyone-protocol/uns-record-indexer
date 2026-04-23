@@ -110,6 +110,11 @@ export class HealingService implements OnModuleInit, OnModuleDestroy {
       const chunkDelayMs = Number(
         this.configService.get<string>('HEALING_CHUNK_DELAY_MS', '250'),
       );
+      const watchedKey = this.configService.get<string>(
+        'WATCHED_UNS_KEY',
+        'token.ANYONE.ANYONE.ANYONE.address',
+      );
+      const keyIndexTopic = this.decoder.getKeyIndexTopic(watchedKey);
 
       const latest = await this.callWithFailover((p) => p.getBlockNumber());
       const latestSafeBlock = Math.max(startBlock, latest - confirmations);
@@ -141,11 +146,21 @@ export class HealingService implements OnModuleInit, OnModuleDestroy {
         const rangeEnd = Math.min(rangeStart + chunkSize - 1, latestSafeBlock);
         this.logger.debug(`Fetching logs ${rangeStart}-${rangeEnd}`);
 
-        const logs = await this.fetchLogsWithRetry(
-          unsAddress,
-          rangeStart,
-          rangeEnd,
-        );
+        // `Set` has 4 topics and `ResetRecords` has 2, so they can't share
+        // a single filter. Fetch them separately — `Set` is narrowed to
+        // the watched key via the indexed `keyIndex` topic hash, which
+        // lets the RPC provider discard unrelated record keys server-side.
+        const [setLogs, resetLogs] = await Promise.all([
+          this.fetchLogsWithRetry(unsAddress, rangeStart, rangeEnd, [
+            this.decoder.getSetEventTopic(),
+            null,
+            keyIndexTopic,
+          ]),
+          this.fetchLogsWithRetry(unsAddress, rangeStart, rangeEnd, [
+            this.decoder.getResetRecordsEventTopic(),
+          ]),
+        ]);
+        const logs = [...setLogs, ...resetLogs];
 
         totalLogs += logs.length;
 
@@ -205,6 +220,7 @@ export class HealingService implements OnModuleInit, OnModuleDestroy {
     address: string,
     fromBlock: number,
     toBlock: number,
+    topics: (string | string[] | null)[],
     attempt = 0,
   ): Promise<Log[]> {
     const maxRetries = 4;
@@ -216,7 +232,7 @@ export class HealingService implements OnModuleInit, OnModuleDestroy {
           address,
           fromBlock,
           toBlock,
-          topics: [this.decoder.getEventTopics()],
+          topics,
         }),
       );
     } catch (error) {
@@ -225,8 +241,18 @@ export class HealingService implements OnModuleInit, OnModuleDestroy {
         this.logger.warn(
           `Block range ${fromBlock}-${toBlock} too large; splitting at ${mid}`,
         );
-        const first = await this.fetchLogsWithRetry(address, fromBlock, mid);
-        const second = await this.fetchLogsWithRetry(address, mid + 1, toBlock);
+        const first = await this.fetchLogsWithRetry(
+          address,
+          fromBlock,
+          mid,
+          topics,
+        );
+        const second = await this.fetchLogsWithRetry(
+          address,
+          mid + 1,
+          toBlock,
+          topics,
+        );
         return [...first, ...second];
       }
 
@@ -244,7 +270,13 @@ export class HealingService implements OnModuleInit, OnModuleDestroy {
         `getLogs failed (attempt ${attempt + 1}/${maxRetries}), retrying in ${delay}ms: ${(error as Error).message}`,
       );
       await this.sleep(delay);
-      return this.fetchLogsWithRetry(address, fromBlock, toBlock, attempt + 1);
+      return this.fetchLogsWithRetry(
+        address,
+        fromBlock,
+        toBlock,
+        topics,
+        attempt + 1,
+      );
     }
   }
 

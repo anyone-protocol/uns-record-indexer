@@ -194,7 +194,7 @@ export class EventProcessorService {
     );
 
     if (!cleared) {
-      this.logger.warn(
+      this.logger.debug(
         `Received ResetRecords event for tokenId ${event.tokenId} with no existing record at tx ${event.transactionHash} log index ${event.logIndex}`,
       );
       return;
@@ -251,6 +251,8 @@ export class EventProcessorService {
 
     await manager.save(IndexerCheckpointEntity, next);
 
-    this.logger.debug(`Advanced checkpoint to block ${next.lastProcessedBlock}`);
+    this.logger.debug(
+      `Advanced checkpoint to block ${next.lastProcessedBlock}`,
+    );
   }
 }
