@@ -251,6 +251,6 @@ export class EventProcessorService {
 
     await manager.save(IndexerCheckpointEntity, next);
 
-    this.logger.log(`Advanced checkpoint to block ${next.lastProcessedBlock}`);
+    this.logger.debug(`Advanced checkpoint to block ${next.lastProcessedBlock}`);
   }
 }

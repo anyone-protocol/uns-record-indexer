@@ -125,6 +125,7 @@ All configuration is via environment variables. Copy `.env.example` and fill in 
 | `METADATA_BACKFILL_INTERVAL_MS` | no | `600000` | Delay between metadata backfill cycles (ms) |
 | `METADATA_BACKFILL_BATCH_SIZE` | no | `25` | Records re-queried per backfill cycle |
 | `METADATA_BACKFILL_REQUEST_DELAY_MS` | no | `200` | Delay between backfill API calls (ms) |
+| `LOG_LEVELS` | no | `log,warn,error,fatal` | Comma-separated NestJS log levels to enable. Allowed values: `fatal`, `error`, `warn`, `log`, `debug`, `verbose`. Set e.g. `log,warn,error,fatal,debug` to include debug output. |
 
 ## Run Locally (No Docker)
 
