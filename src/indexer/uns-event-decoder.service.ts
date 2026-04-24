@@ -1,11 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { Interface, Log, LogDescription, id } from 'ethers';
-import { UNS_ABI } from './constants';
+import { Interface, Log, LogDescription, getAddress, id } from 'ethers';
+import { ERC721_TRANSFER_ABI, UNS_ABI } from './constants';
 import { DecodedUnsEvent } from './types';
 
 @Injectable()
 export class UnsEventDecoderService {
-  private readonly iface = new Interface(UNS_ABI);
+  // The Transfer fragment is merged into the same Interface so a single
+  // parseLog call can dispatch Set / ResetRecords / Transfer events.
+  private readonly iface = new Interface([...UNS_ABI, ...ERC721_TRANSFER_ABI]);
 
   getSetEventTopic(): string {
     return this.iface.getEvent('Set')!.topicHash;
@@ -13,6 +15,10 @@ export class UnsEventDecoderService {
 
   getResetRecordsEventTopic(): string {
     return this.iface.getEvent('ResetRecords')!.topicHash;
+  }
+
+  getTransferEventTopic(): string {
+    return this.iface.getEvent('Transfer')!.topicHash;
   }
 
   /**
@@ -41,6 +47,8 @@ export class UnsEventDecoderService {
       tokenId: bigint;
       key: unknown;
       value: unknown;
+      from: unknown;
+      to: unknown;
     };
 
     if (parsed.name === 'Set') {
@@ -61,6 +69,20 @@ export class UnsEventDecoderService {
       return {
         name: 'ResetRecords',
         tokenId: args.tokenId.toString(),
+        blockNumber: log.blockNumber,
+        transactionHash: log.transactionHash,
+        logIndex: log.index,
+        transactionIndex: log.transactionIndex,
+        address: log.address.toLowerCase(),
+      };
+    }
+
+    if (parsed.name === 'Transfer') {
+      return {
+        name: 'Transfer',
+        tokenId: args.tokenId.toString(),
+        from: getAddress(String(args.from)).toLowerCase(),
+        to: getAddress(String(args.to)).toLowerCase(),
         blockNumber: log.blockNumber,
         transactionHash: log.transactionHash,
         logIndex: log.index,

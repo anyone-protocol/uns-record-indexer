@@ -9,6 +9,7 @@ import { Log, WebSocketProvider } from 'ethers';
 import { EventProcessorService } from './event-processor.service';
 import { RpcEndpointManagerService } from './rpc/rpc-endpoint-manager.service';
 import { UnsEventDecoderService } from './uns-event-decoder.service';
+import { UnsTokenProcessorService } from './uns-token-processor.service';
 
 @Injectable()
 export class RealtimeIndexerService implements OnModuleInit, OnModuleDestroy {
@@ -22,6 +23,7 @@ export class RealtimeIndexerService implements OnModuleInit, OnModuleDestroy {
     private readonly configService: ConfigService,
     private readonly decoder: UnsEventDecoderService,
     private readonly eventProcessor: EventProcessorService,
+    private readonly tokenProcessor: UnsTokenProcessorService,
     private readonly rpcManager: RpcEndpointManagerService,
   ) {}
 
@@ -85,12 +87,23 @@ export class RealtimeIndexerService implements OnModuleInit, OnModuleDestroy {
       address: unsAddress,
       topics: [this.decoder.getResetRecordsEventTopic()],
     };
+    // All ERC-721 Transfers on the UNS contract — covers mints (from = 0x0),
+    // ordinary transfers, and burns. The token processor filters by TLD
+    // after resolving each token's name from the metadata API.
+    const transferFilter = {
+      address: unsAddress,
+      topics: [this.decoder.getTransferEventTopic()],
+    };
 
     await this.wsProvider.on(setFilter, (log: Log) => {
       void this.handleLog(log);
     });
 
     await this.wsProvider.on(resetFilter, (log: Log) => {
+      void this.handleLog(log);
+    });
+
+    await this.wsProvider.on(transferFilter, (log: Log) => {
       void this.handleLog(log);
     });
 
@@ -154,7 +167,11 @@ export class RealtimeIndexerService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      await this.eventProcessor.process(decoded);
+      if (decoded.name === 'Transfer') {
+        await this.tokenProcessor.process(decoded);
+      } else {
+        await this.eventProcessor.process(decoded);
+      }
     } catch (error) {
       this.logger.error('Failed to process websocket log', error as Error);
     }
