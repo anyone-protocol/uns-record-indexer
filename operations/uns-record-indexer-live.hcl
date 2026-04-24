@@ -136,6 +136,9 @@ job "uns-record-indexer-live" {
         RPC_FAILOVER_COOLDOWN_MS     = "600000"
         RPC_FAILOVER_HEAL_BACK_ENABLED = "false"
         RPC_FAILOVER_ERROR_THRESHOLD = "3"
+        UNS_TOKEN_HEALING_INTERVAL_MS="86400000"
+        UNS_TOKEN_HEALING_BLOCK_CHUNK_SIZE="10000"
+        UNS_TOKEN_HEALING_CHUNK_DELAY_MS="1000"
       }
 
       template {
