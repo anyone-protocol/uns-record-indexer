@@ -1,6 +1,7 @@
 variable "commit_sha" {
   type        = string
   description = "The git commit SHA to use for the indexer image tag"
+  default     = "1bb9e57f24de7ba171280b9c51aa59f1b1d7735c"
 }
 
 job "uns-record-indexer-stage" {
